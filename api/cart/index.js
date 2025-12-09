@@ -1,4 +1,4 @@
-import connectDB from '../../db.js';
+import connectDB from '../db.js';
 import Cart from '../../backend/models/Cart.js';
 import Product from '../../backend/models/Product.js';
 import jwt from 'jsonwebtoken';
@@ -22,7 +22,7 @@ async function protect(req) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -33,54 +33,71 @@ export default async function handler(req, res) {
     await connectDB();
     const user = await protect(req);
 
-    const slug = req.query.slug || [];
-    const itemId = slug[0];
-
-    // PUT /api/cart/:itemId (update item)
-    if (req.method === 'PUT' && itemId) {
-      const { quantity } = req.body;
-      const cart = await Cart.findOne({ user: user._id });
-
+    // GET /api/cart (get cart)
+    if (req.method === 'GET') {
+      let cart = await Cart.findOne({ user: user._id }).populate('items.product');
+      
       if (!cart) {
-        return res.status(404).json({ message: 'Cart not found' });
+        cart = await Cart.create({ user: user._id, items: [] });
+      }
+      
+      return res.json(cart);
+    }
+
+    // POST /api/cart (add item)
+    if (req.method === 'POST') {
+      const { productId, quantity } = req.body;
+
+      if (!productId || !quantity) {
+        return res.status(400).json({ message: 'Product ID and quantity are required' });
       }
 
-      const item = cart.items.id(itemId);
-      if (!item) {
-        return res.status(404).json({ message: 'Item not found in cart' });
+      const product = await Product.findById(productId);
+      if (!product) {
+        return res.status(404).json({ message: 'Product not found' });
       }
 
-      const product = await Product.findById(item.product);
       if (product.stock < quantity) {
         return res.status(400).json({ message: 'Insufficient stock' });
       }
 
-      item.quantity = quantity;
+      let cart = await Cart.findOne({ user: user._id });
+
+      if (!cart) {
+        cart = await Cart.create({ user: user._id, items: [] });
+      }
+
+      const existingItemIndex = cart.items.findIndex(
+        item => item.product.toString() === productId
+      );
+
+      if (existingItemIndex > -1) {
+        cart.items[existingItemIndex].quantity += quantity;
+      } else {
+        cart.items.push({ product: productId, quantity });
+      }
+
       await cart.save();
       await cart.populate('items.product');
 
       return res.json(cart);
     }
 
-    // DELETE /api/cart/:itemId (remove item)
-    if (req.method === 'DELETE' && itemId) {
+    // DELETE /api/cart (clear cart)
+    if (req.method === 'DELETE') {
       const cart = await Cart.findOne({ user: user._id });
 
       if (!cart) {
         return res.status(404).json({ message: 'Cart not found' });
       }
 
-      cart.items = cart.items.filter(
-        item => item._id.toString() !== itemId
-      );
-
+      cart.items = [];
       await cart.save();
-      await cart.populate('items.product');
 
-      return res.json(cart);
+      return res.json({ message: 'Cart cleared successfully' });
     }
 
-    return res.status(404).json({ message: 'Route not found' });
+    return res.status(405).json({ message: 'Method not allowed' });
   } catch (error) {
     console.error('Cart error:', error);
     if (error.message.includes('Not authorized')) {

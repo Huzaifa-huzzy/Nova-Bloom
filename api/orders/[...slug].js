@@ -38,24 +38,6 @@ export default async function handler(req, res) {
     const id = slug[0];
     const action = slug[1]; // 'pay' or 'deliver'
 
-    // GET /api/orders (list orders)
-    if (req.method === 'GET' && !id) {
-      let orders;
-      
-      if (user.role === 'admin') {
-        orders = await Order.find({})
-          .populate('user', 'name email')
-          .populate('orderItems.product')
-          .sort({ createdAt: -1 });
-      } else {
-        orders = await Order.find({ user: user._id })
-          .populate('orderItems.product')
-          .sort({ createdAt: -1 });
-      }
-
-      return res.json(orders);
-    }
-
     // GET /api/orders/:id (get single order)
     if (req.method === 'GET' && id && !action) {
       const order = await Order.findById(id)
@@ -71,62 +53,6 @@ export default async function handler(req, res) {
       }
 
       return res.json(order);
-    }
-
-    // POST /api/orders (create order)
-    if (req.method === 'POST' && !id) {
-      const { shippingAddress, paymentMethod } = req.body;
-
-      if (!shippingAddress || !paymentMethod) {
-        return res.status(400).json({ message: 'Shipping address and payment method are required' });
-      }
-
-      const cart = await Cart.findOne({ user: user._id }).populate('items.product');
-      
-      if (!cart || cart.items.length === 0) {
-        return res.status(400).json({ message: 'Cart is empty' });
-      }
-
-      const itemsPrice = cart.items.reduce((total, item) => {
-        return total + (item.product.price * item.quantity);
-      }, 0);
-
-      const taxPrice = itemsPrice * 0.1;
-      const shippingPrice = itemsPrice > 100 ? 0 : 10;
-      const totalPrice = itemsPrice + taxPrice + shippingPrice;
-
-      const orderItems = cart.items.map(item => ({
-        product: item.product._id,
-        name: item.product.name,
-        image: item.product.image,
-        price: item.product.price,
-        quantity: item.quantity
-      }));
-
-      const order = await Order.create({
-        user: user._id,
-        orderItems,
-        shippingAddress,
-        paymentMethod,
-        itemsPrice,
-        taxPrice,
-        shippingPrice,
-        totalPrice
-      });
-
-      for (const item of cart.items) {
-        await Product.findByIdAndUpdate(item.product._id, {
-          $inc: { stock: -item.quantity }
-        });
-      }
-
-      cart.items = [];
-      await cart.save();
-
-      await order.populate('user', 'name email');
-      await order.populate('orderItems.product');
-
-      return res.status(201).json(order);
     }
 
     // PUT /api/orders/:id/pay (mark as paid)

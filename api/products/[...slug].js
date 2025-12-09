@@ -34,40 +34,6 @@ export default async function handler(req, res) {
     const slug = req.query.slug || [];
     const id = slug[0];
 
-    // GET /api/products (list all)
-    if (req.method === 'GET' && !id) {
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 10;
-      const skip = (page - 1) * limit;
-      const category = req.query.category;
-      const search = req.query.search;
-
-      let query = {};
-      if (category) {
-        query.category = category;
-      }
-      if (search) {
-        query.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } }
-        ];
-      }
-
-      const products = await Product.find(query)
-        .limit(limit)
-        .skip(skip)
-        .sort({ createdAt: -1 });
-
-      const total = await Product.countDocuments(query);
-
-      return res.json({
-        products,
-        page,
-        pages: Math.ceil(total / limit),
-        total
-      });
-    }
-
     // GET /api/products/:id (single product)
     if (req.method === 'GET' && id) {
       const product = await Product.findById(id);
@@ -77,17 +43,6 @@ export default async function handler(req, res) {
       return res.json(product);
     }
 
-    // POST /api/products (create - admin only)
-    if (req.method === 'POST' && !id) {
-      const user = await protect(req);
-      
-      if (user.role !== 'admin') {
-        return res.status(403).json({ message: 'Not authorized as admin' });
-      }
-
-      const product = await Product.create(req.body);
-      return res.status(201).json(product);
-    }
 
     // PUT /api/products/:id (update - admin only)
     if (req.method === 'PUT' && id) {
